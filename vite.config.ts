@@ -38,16 +38,30 @@ export default defineConfig(({ mode, command }) => {
         name: "copy-output-to-dist",
         apply: "build",
         closeBundle() {
-          const srcDir = path.resolve(__dirname, "output");
-          const dstDir = path.resolve(__dirname, "dist", "output");
+          // Copy output folder
+          const outputSrcDir = path.resolve(__dirname, "output");
+          const outputDstDir = path.resolve(__dirname, "dist", "output");
 
-          if (!fs.existsSync(srcDir)) return;
-          fs.mkdirSync(dstDir, { recursive: true });
+          if (fs.existsSync(outputSrcDir)) {
+            fs.mkdirSync(outputDstDir, { recursive: true });
+            for (const file of fs.readdirSync(outputSrcDir)) {
+              const src = path.join(outputSrcDir, file);
+              const dst = path.join(outputDstDir, file);
+              if (fs.statSync(src).isFile()) fs.copyFileSync(src, dst);
+            }
+          }
 
-          for (const file of fs.readdirSync(srcDir)) {
-            const src = path.join(srcDir, file);
-            const dst = path.join(dstDir, file);
-            if (fs.statSync(src).isFile()) fs.copyFileSync(src, dst);
+          // Copy data folder
+          const dataSrcDir = path.resolve(__dirname, "data");
+          const dataDstDir = path.resolve(__dirname, "dist", "data");
+
+          if (fs.existsSync(dataSrcDir)) {
+            fs.mkdirSync(dataDstDir, { recursive: true });
+            for (const file of fs.readdirSync(dataSrcDir)) {
+              const src = path.join(dataSrcDir, file);
+              const dst = path.join(dataDstDir, file);
+              if (fs.statSync(src).isFile()) fs.copyFileSync(src, dst);
+            }
           }
         },
       },

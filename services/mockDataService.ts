@@ -291,24 +291,57 @@ const parseNewsCsv = (csvText: string): Map<string, { sentiment: number; headlin
   return newsData;
 };
 
+// --- Helper to get correct path for GitHub Pages ---
+// In GitHub Pages, base path is /202512-26/, so we need to prepend it to absolute paths
+const getResourcePath = (path: string): string => {
+  // If path already starts with base path, return as is
+  if (path.startsWith('/202512-26/')) {
+    return path;
+  }
+  // If path is absolute (starts with /), prepend base path
+  if (path.startsWith('/')) {
+    return `/202512-26${path}`;
+  }
+  // Relative paths work as is
+  return path;
+};
+
 // --- Helper to fetch CSV safely ---
 const fetchCsvSafely = async (url: string): Promise<string | null> => {
-  try {
-    const response = await fetch(url);
-    const contentType = response.headers.get("content-type");
-    const isJsonOrHtml = contentType && 
-      (contentType.includes("application/json") || contentType.includes("text/html"));
+  // Try multiple paths: original, with base path, and relative
+  const pathsToTry = [
+    url, // Original path (works in local dev)
+    getResourcePath(url), // With base path (works in GitHub Pages)
+    url.startsWith('/') ? `.${url}` : url, // Relative path
+  ];
 
-    if (response.ok && !isJsonOrHtml) {
-      const text = await response.text();
-      if (!text.trim().toLowerCase().startsWith("<!doctype") && 
-          !text.trim().toLowerCase().startsWith("<html")) {
-        return text;
+  for (const finalUrl of pathsToTry) {
+    try {
+      const response = await fetch(finalUrl);
+      
+      if (!response.ok) {
+        continue; // Try next path
       }
+
+      const contentType = response.headers.get("content-type");
+      const isJsonOrHtml = contentType && 
+        (contentType.includes("application/json") || contentType.includes("text/html"));
+
+      if (!isJsonOrHtml) {
+        const text = await response.text();
+        // Check if it's HTML (404 page) or actual CSV
+        if (!text.trim().toLowerCase().startsWith("<!doctype") && 
+            !text.trim().toLowerCase().startsWith("<html") &&
+            !text.trim().toLowerCase().startsWith("<!doctype")) {
+          return text;
+        }
+      }
+    } catch (error) {
+      // Try next path
+      continue;
     }
-  } catch (error) {
-    // Silently fail
   }
+  
   return null;
 };
 
@@ -316,9 +349,14 @@ const fetchCsvSafely = async (url: string): Promise<string | null> => {
 const parseSummaryCsv = (csvText: string): Map<string, { mae: number; rmse: number; r2: number; mape: number }> => {
   const metrics = new Map<string, { mae: number; rmse: number; r2: number; mape: number }>();
   const lines = csvText.trim().split('\n');
-  if (lines.length < 2) return metrics;
+  if (lines.length < 2) {
+    console.warn('parseSummaryCsv: CSV has less than 2 lines');
+    return metrics;
+  }
 
   const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+  console.log('parseSummaryCsv headers:', headers);
+  
   const tickerIdx = headers.indexOf('ticker');
   const maeIdx = headers.indexOf('test_mae');
   const rmseIdx = headers.indexOf('test_rmse');
@@ -326,6 +364,9 @@ const parseSummaryCsv = (csvText: string): Map<string, { mae: number; rmse: numb
   const mapeIdx = headers.indexOf('test_mape');
 
   if (tickerIdx === -1 || maeIdx === -1 || rmseIdx === -1 || r2Idx === -1 || mapeIdx === -1) {
+    console.error('parseSummaryCsv: Missing required columns', {
+      tickerIdx, maeIdx, rmseIdx, r2Idx, mapeIdx
+    });
     return metrics;
   }
 
@@ -334,7 +375,10 @@ const parseSummaryCsv = (csvText: string): Map<string, { mae: number; rmse: numb
     if (!line) continue;
     
     const parts = line.split(',');
-    if (parts.length < headers.length) continue;
+    if (parts.length < headers.length) {
+      console.warn(`parseSummaryCsv: Line ${i} has ${parts.length} parts, expected ${headers.length}`);
+      continue;
+    }
 
     const ticker = parts[tickerIdx]?.trim();
     const mae = parseFloat(parts[maeIdx]?.trim() || '0');
@@ -344,6 +388,12 @@ const parseSummaryCsv = (csvText: string): Map<string, { mae: number; rmse: numb
 
     if (ticker && !isNaN(mae) && !isNaN(rmse) && !isNaN(r2) && !isNaN(mape)) {
       metrics.set(ticker, { mae, rmse, r2, mape });
+      console.log(`parseSummaryCsv: Added metrics for ${ticker}:`, { mae, rmse, r2, mape });
+    } else {
+      console.warn(`parseSummaryCsv: Skipping invalid row for ticker ${ticker}`, {
+        mae, rmse, r2, mape,
+        isValid: !isNaN(mae) && !isNaN(rmse) && !isNaN(r2) && !isNaN(mape)
+      });
     }
   }
   return metrics;
@@ -361,14 +411,28 @@ export const getModelMetrics = async (): Promise<{
   const baseSummaryText = await fetchCsvSafely('/output/base_model_summary.csv');
   if (baseSummaryText) {
     baseMetrics = parseSummaryCsv(baseSummaryText);
-    console.log(`Loaded base model metrics for ${baseMetrics.size} tickers.`);
+    console.log(`Loaded base model metrics for ${baseMetrics.size} tickers:`, Array.from(baseMetrics.keys()));
+    // Debug: log first metric
+    if (baseMetrics.size > 0) {
+      const firstTicker = Array.from(baseMetrics.keys())[0];
+      console.log(`Sample base metric for ${firstTicker}:`, baseMetrics.get(firstTicker));
+    }
+  } else {
+    console.error('Failed to load base_model_summary.csv');
   }
 
   // Load advanced model metrics
   const advSummaryText = await fetchCsvSafely('/output/advanced_model_summary.csv');
   if (advSummaryText) {
     advancedMetrics = parseSummaryCsv(advSummaryText);
-    console.log(`Loaded advanced model metrics for ${advancedMetrics.size} tickers.`);
+    console.log(`Loaded advanced model metrics for ${advancedMetrics.size} tickers:`, Array.from(advancedMetrics.keys()));
+    // Debug: log first metric
+    if (advancedMetrics.size > 0) {
+      const firstTicker = Array.from(advancedMetrics.keys())[0];
+      console.log(`Sample advanced metric for ${firstTicker}:`, advancedMetrics.get(firstTicker));
+    }
+  } else {
+    console.error('Failed to load advanced_model_summary.csv');
   }
 
   return { base: baseMetrics, advanced: advancedMetrics };

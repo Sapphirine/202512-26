@@ -121,6 +121,17 @@ function App() {
     const baseMetrics = modelMetrics?.base.get(ticker);
     const advMetrics = modelMetrics?.advanced.get(ticker);
     
+    // Debug logging
+    if (!baseMetrics || !advMetrics) {
+      console.warn(`Metrics not found for ticker ${ticker}`, {
+        hasModelMetrics: !!modelMetrics,
+        baseKeys: modelMetrics?.base ? Array.from(modelMetrics.base.keys()) : [],
+        advKeys: modelMetrics?.advanced ? Array.from(modelMetrics.advanced.keys()) : [],
+        baseMetrics,
+        advMetrics
+      });
+    }
+    
     // Daily Error for the current/hovered day (still calculated from data)
     const baseError = Math.abs(currentDay.close - currentDay.basePrediction);
     const advError = Math.abs(currentDay.close - currentDay.advancedPrediction);
